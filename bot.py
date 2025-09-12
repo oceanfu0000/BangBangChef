@@ -16,15 +16,9 @@ log = logging.getLogger("shot-cook-bot")
 # ---------- Config: deadly sticker(s) ----------
 # Uses your provided sticker file_id. You can also add file_unique_id(s) for stability after first run.
 TARGET_STICKER_FILE_IDS = {
-    "CAACAgUAAxkBAAMCaLrKaM8M05mcNbW1hwzrRHWRyDIAAoACAALZkE0HXDbU1x9tb6o2BA"  # gun
+    "CAACAgUAAxkBAAMCaLrKaM8M05mcNbW1hwzrRHWRyDIAAoACAALZkE0HXDbU1x9tb6o2BA"
 }
-TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # gun unique_id
-
-# New bleach sticker(s)
-BLEACH_STICKER_FILE_IDS = {
-    "PUT_THE_BLEACH_STICKER_FILE_ID_HERE"
-}
-BLEACH_STICKER_UNIQUE_IDS = {"PUT_THE_BLEACH_STICKER_UNIQUE_ID_HERE"}
+TARGET_STICKER_UNIQUE_IDS = "AgADgAIAAtmQTQc"  # fill after logging a first use if you want
 
 # ---------- Typist history per chat (compact, no consecutive duplicates) ----------
 # chat_id -> [(user_id, display_name), ...]
@@ -69,33 +63,30 @@ def is_target_sticker(update: Update) -> bool:
     log.info("Sticker seen: file_id=%s file_unique_id=%s", fid, fuid)
     return (fid in TARGET_STICKER_FILE_IDS) or (fuid in TARGET_STICKER_UNIQUE_IDS)
 
-def is_bleach_sticker(update: Update) -> bool:
-    if not update.message or not update.message.sticker:
-        return False
-    s = update.message.sticker
-    fid = s.file_id
-    fuid = s.file_unique_id
-    log.info("Sticker seen: file_id=%s file_unique_id=%s", fid, fuid)
-    return (fid in BLEACH_STICKER_FILE_IDS) or (fuid in BLEACH_STICKER_UNIQUE_IDS)
-
 # ---------- Handlers ----------
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    - Remember distinct text typists (skip bots).
+    - If message contains cook/cooked/cooks/cooking → send a funny quip.
+    """
     if update.effective_chat is None or update.effective_user is None or not update.message:
         return
     user = update.effective_user
     if user.is_bot:
         return
+    # Only count TEXT as 'typed' (change to any non-sticker by altering filters in main)
     if update.message.text:
         push_typist(update.effective_chat.id, (user.id, display_name(user)))
 
+        # Kitchen quips
         if COOK_VARIANTS.search(update.message.text):
             await update.effective_chat.send_message(random.choice(COOK_RESPONSES))
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if is_bleach_sticker(update):
-        await update.effective_chat.send_message("🚫 Stop, he is drinking bleach!!!")
-        return
-
+    """
+    On target sticker: shoot the most recent typist who's NOT the sticker sender.
+    If history only contains the shooter, do nothing funny message.
+    """
     if not is_target_sticker(update):
         return
     if update.effective_chat is None or update.effective_user is None:
@@ -110,6 +101,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.effective_chat.send_message("No targets yet—nobody typed before this sticker. 👀")
         return
 
+    # Find the latest typist who isn't the shooter
     target: Optional[Tuple[int, str]] = None
     for uid, name in reversed(hist):
         if uid != shooter.id:
@@ -133,19 +125,29 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ---------- Main ----------
 def main():
     token = os.getenv("BOT_TOKEN")
-    port = int(os.getenv("PORT", 10000))  # <-- assign port (default 10000 if not set)
+    port = int(os.getenv("PORT", 10000))  # Render sets this automatically
+    url = os.getenv("RENDER_EXTERNAL_URL")  # Render gives you this in env
 
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var with your Telegram bot token.")
+    if not url:
+        raise RuntimeError("Set RENDER_EXTERNAL_URL env var to your Render app URL.")
 
     app = ApplicationBuilder().token(token).build()
 
+    # Handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Sticker.ALL & ~filters.StatusUpdate.ALL, text_handler))
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
-
     app.add_error_handler(error_handler)
-    log.info("Bot started. Ready to shoot, cook, and stop bleach drinkers.")
-    app.run_polling(port=port)
+
+    log.info("Bot started. Listening on port %s", port)
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=token,
+        webhook_url=f"{url}/{token}"  # public HTTPS Render URL
+    )
 
 if __name__ == "__main__":
     main()
