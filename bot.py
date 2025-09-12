@@ -20,6 +20,15 @@ TARGET_STICKER_FILE_IDS = {
 }
 TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # <-- make this a SET, not a string
 
+# New bleach sticker(s) — fill these with your actual IDs
+BLEACH_STICKER_FILE_IDS = {
+    "CAACAgUAAyEFAASUR62oAAIS3GjENB-aYb1fXqy1iO94Ky_6DVvTAALZDAACgmaBVc-OOmpJBG-sNgQ"
+}
+BLEACH_STICKER_UNIQUE_IDS = {
+    "AgAD2QwAAoJmgVU"
+}
+
+
 # ---------- Typist history per chat (compact, no consecutive duplicates) ----------
 typist_history: Dict[int, List[Tuple[int, str]]] = {}
 
@@ -61,6 +70,15 @@ def is_target_sticker(update: Update) -> bool:
     log.info("Sticker seen: file_id=%s file_unique_id=%s", fid, fuid)
     return (fid in TARGET_STICKER_FILE_IDS) or (fuid in TARGET_STICKER_UNIQUE_IDS)
 
+def is_bleach_sticker(update: Update) -> bool:
+    if not update.message or not update.message.sticker:
+        return False
+    s = update.message.sticker
+    fid = s.file_id
+    fuid = s.file_unique_id
+    log.info("Sticker seen: file_id=%s file_unique_id=%s", fid, fuid)
+    return (fid in BLEACH_STICKER_FILE_IDS) or (fuid in BLEACH_STICKER_UNIQUE_IDS)
+
 # ---------- Handlers ----------
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat is None or update.effective_user is None or not update.message:
@@ -74,6 +92,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.effective_chat.send_message(random.choice(COOK_RESPONSES))
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
+    # Bleach reaction first
+    if is_bleach_sticker(update):
+        await update.effective_chat.send_message("🚫 Stop, he is drinking bleach!!!")
+        return
+
     if not is_target_sticker(update):
         return
     if update.effective_chat is None or update.effective_user is None:
