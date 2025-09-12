@@ -4,6 +4,7 @@ import random
 import logging
 from typing import Dict, List, Tuple, Optional
 
+from aiohttp import web  # <— add this
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -14,14 +15,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(nam
 log = logging.getLogger("shot-cook-bot")
 
 # ---------- Config: deadly sticker(s) ----------
-# Uses your provided sticker file_id. You can also add file_unique_id(s) for stability after first run.
 TARGET_STICKER_FILE_IDS = {
     "CAACAgUAAxkBAAMCaLrKaM8M05mcNbW1hwzrRHWRyDIAAoACAALZkE0HXDbU1x9tb6o2BA"
 }
-TARGET_STICKER_UNIQUE_IDS = "AgADgAIAAtmQTQc"  # fill after logging a first use if you want
+TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # <-- make this a SET, not a string
 
 # ---------- Typist history per chat (compact, no consecutive duplicates) ----------
-# chat_id -> [(user_id, display_name), ...]
 typist_history: Dict[int, List[Tuple[int, str]]] = {}
 
 # ---------- Kitchen keywords ----------
@@ -47,7 +46,6 @@ def display_name(u) -> str:
     return name or "Someone"
 
 def push_typist(chat_id: int, entry: Tuple[int, str], limit: int = 50) -> None:
-    """Append a typist, collapsing consecutive duplicates and bounding list size."""
     hist = typist_history.setdefault(chat_id, [])
     if not hist or hist[-1][0] != entry[0]:
         hist.append(entry)
@@ -65,28 +63,17 @@ def is_target_sticker(update: Update) -> bool:
 
 # ---------- Handlers ----------
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    - Remember distinct text typists (skip bots).
-    - If message contains cook/cooked/cooks/cooking → send a funny quip.
-    """
     if update.effective_chat is None or update.effective_user is None or not update.message:
         return
     user = update.effective_user
     if user.is_bot:
         return
-    # Only count TEXT as 'typed' (change to any non-sticker by altering filters in main)
     if update.message.text:
         push_typist(update.effective_chat.id, (user.id, display_name(user)))
-
-        # Kitchen quips
         if COOK_VARIANTS.search(update.message.text):
             await update.effective_chat.send_message(random.choice(COOK_RESPONSES))
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    On target sticker: shoot the most recent typist who's NOT the sticker sender.
-    If history only contains the shooter, do nothing funny message.
-    """
     if not is_target_sticker(update):
         return
     if update.effective_chat is None or update.effective_user is None:
@@ -101,7 +88,6 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.effective_chat.send_message("No targets yet—nobody typed before this sticker. 👀")
         return
 
-    # Find the latest typist who isn't the shooter
     target: Optional[Tuple[int, str]] = None
     for uid, name in reversed(hist):
         if uid != shooter.id:
@@ -115,9 +101,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     _, target_name = target
-    await update.effective_chat.send_message(
-        f"🔫 {shooter_name} shot {target_name}! 💀"
-    )
+    await update.effective_chat.send_message(f"🔫 {shooter_name} shot {target_name}! 💀")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Error: %s", context.error)
@@ -125,13 +109,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ---------- Main ----------
 def main():
     token = os.getenv("BOT_TOKEN")
-    port = int(os.getenv("PORT", 10000))  # Render sets this automatically
-    url = os.getenv("RENDER_EXTERNAL_URL")  # Render gives you this in env
+    port = int(os.getenv("PORT", 10000))  # Render provides this
+    url = (os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")  # ensure no trailing slash
 
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var with your Telegram bot token.")
     if not url:
-        raise RuntimeError("Set RENDER_EXTERNAL_URL env var to your Render app URL.")
+        raise RuntimeError("Set RENDER_EXTERNAL_URL env var to your Render app URL (e.g., https://your-app.onrender.com).")
 
     app = ApplicationBuilder().token(token).build()
 
@@ -140,13 +124,21 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_error_handler(error_handler)
 
-    log.info("Bot started. Listening on port %s", port)
+    # --- Health check web app for Render (returns 200 on "/") ---
+    web_app = web.Application()
+    async def health(_request):
+        return web.Response(text="ok")
+    web_app.router.add_get("/", health)
+
+    # log.info("Bot starting. Binding 0.0.0.0:%s and webhook to %s/<secret>", port, url)
 
     app.run_webhook(
         listen="0.0.0.0",
         port=port,
-        url_path=token,
-        webhook_url=f"{url}/{token}"  # public HTTPS Render URL
+        url_path=token,                 # path handler inside our app
+        webhook_url=f"{url}/{token}",   # public HTTPS URL that Telegram calls
+        drop_pending_updates=True,
+        web_app=web_app                 # <-- serves "/" for Render health check
     )
 
 if __name__ == "__main__":
