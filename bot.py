@@ -135,7 +135,7 @@ def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .request(HTTPXRequest(timeout=30))
+        .request(HTTPXRequest())
         .build()
     )
 
