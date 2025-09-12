@@ -22,8 +22,8 @@ TARGET_STICKER_FILE_IDS = {
 TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # MUST be a set, not a str
 
 # Add your BLEACH sticker IDs here after you log them once
-BLEACH_STICKER_FILE_IDS = {"PUT_BLEACH_FILE_ID_HERE"}
-BLEACH_STICKER_UNIQUE_IDS = {"PUT_BLEACH_UNIQUE_ID_HERE"}
+BLEACH_STICKER_FILE_IDS = {"CAACAgUAAyEFAASUR62oAAIS3GjENB-aYb1fXqy1iO94Ky_6DVvTAALZDAACgmaBVc-OOmpJBG-sNgQ"}
+BLEACH_STICKER_UNIQUE_IDS = {"AgAD2QwAAoJmgVU"}
 
 # ---------- Typist history ----------
 typist_history: Dict[int, List[Tuple[int, str]]] = {}
@@ -146,7 +146,7 @@ def main():
         raise RuntimeError("Set BOT_TOKEN env var with your Telegram bot token.")
 
     # Bind an HTTP port so Render is happy
-    start_health_server(port)
+    # start_health_server(port)
 
     app = ApplicationBuilder().token(token).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Sticker.ALL & ~filters.StatusUpdate.ALL, text_handler))
