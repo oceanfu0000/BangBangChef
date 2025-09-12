@@ -2,9 +2,10 @@ import os
 import re
 import random
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, List, Tuple, Optional
 
-from aiohttp import web  # <— add this
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -14,22 +15,17 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 log = logging.getLogger("shot-cook-bot")
 
-# ---------- Config: deadly sticker(s) ----------
+# ---------- Config: sticker IDs ----------
 TARGET_STICKER_FILE_IDS = {
     "CAACAgUAAxkBAAMCaLrKaM8M05mcNbW1hwzrRHWRyDIAAoACAALZkE0HXDbU1x9tb6o2BA"
 }
-TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # <-- make this a SET, not a string
+TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}  # MUST be a set, not a str
 
-# New bleach sticker(s) — fill these with your actual IDs
-BLEACH_STICKER_FILE_IDS = {
-    "CAACAgUAAyEFAASUR62oAAIS3GjENB-aYb1fXqy1iO94Ky_6DVvTAALZDAACgmaBVc-OOmpJBG-sNgQ"
-}
-BLEACH_STICKER_UNIQUE_IDS = {
-    "AgAD2QwAAoJmgVU"
-}
+# Add your BLEACH sticker IDs here after you log them once
+BLEACH_STICKER_FILE_IDS = {"PUT_BLEACH_FILE_ID_HERE"}
+BLEACH_STICKER_UNIQUE_IDS = {"PUT_BLEACH_UNIQUE_ID_HERE"}
 
-
-# ---------- Typist history per chat (compact, no consecutive duplicates) ----------
+# ---------- Typist history ----------
 typist_history: Dict[int, List[Tuple[int, str]]] = {}
 
 # ---------- Kitchen keywords ----------
@@ -92,12 +88,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.effective_chat.send_message(random.choice(COOK_RESPONSES))
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
     # Bleach reaction first
     if is_bleach_sticker(update):
         await update.effective_chat.send_message("🚫 Stop, he is drinking bleach!!!")
         return
 
+    # Gun/shot logic
     if not is_target_sticker(update):
         return
     if update.effective_chat is None or update.effective_user is None:
@@ -119,9 +115,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             break
 
     if target is None:
-        await update.effective_chat.send_message(
-            f"{shooter_name} fired, but there’s no one else to shoot. 🫥"
-        )
+        await update.effective_chat.send_message(f"{shooter_name} fired, but there’s no one else to shoot. 🫥")
         return
 
     _, target_name = target
@@ -130,40 +124,37 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Error: %s", context.error)
 
+# ---------- Tiny health HTTP server (so Render sees an open port) ----------
+def start_health_server(port: int):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+        def log_message(self, *args):  # silence default logs
+            return
+    srv = HTTPServer(("0.0.0.0", port), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log.info("Health server listening on 0.0.0.0:%s", port)
+
 # ---------- Main ----------
 def main():
     token = os.getenv("BOT_TOKEN")
-    port = int(os.getenv("PORT", 10000))  # Render provides this
-    url = (os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")  # ensure no trailing slash
+    port = int(os.getenv("PORT", 10000))  # Render provides PORT
 
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var with your Telegram bot token.")
-    if not url:
-        raise RuntimeError("Set RENDER_EXTERNAL_URL env var to your Render app URL (e.g., https://your-app.onrender.com).")
+
+    # Bind an HTTP port so Render is happy
+    start_health_server(port)
 
     app = ApplicationBuilder().token(token).build()
-
-    # Handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Sticker.ALL & ~filters.StatusUpdate.ALL, text_handler))
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_error_handler(error_handler)
 
-    # --- Health check web app for Render (returns 200 on "/") ---
-    web_app = web.Application()
-    async def health(_request):
-        return web.Response(text="ok")
-    web_app.router.add_get("/", health)
-
-    # log.info("Bot starting. Binding 0.0.0.0:%s and webhook to %s/<secret>", port, url)
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=token,                 # path handler inside our app
-        webhook_url=f"{url}/{token}",   # public HTTPS URL that Telegram calls
-        drop_pending_updates=True,
-        web_app=web_app                 # <-- serves "/" for Render health check
-    )
+    log.info("Bot started (polling). Health check at GET / on port %s", port)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
