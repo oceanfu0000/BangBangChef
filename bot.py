@@ -38,8 +38,8 @@ BLEACH_STICKER_FILE_IDS = {
 BLEACH_STICKER_UNIQUE_IDS = {"AgAD2QwAAoJmgVU"}
 
 # 3) Gun/shot trigger — fill these with YOUR target sticker IDs
-TARGET_STICKER_FILE_IDS = set()       # e.g. {"<your_gun_sticker_file_id>"}
-TARGET_STICKER_UNIQUE_IDS = set()     # e.g. {"<your_gun_sticker_unique_id>"}
+TARGET_STICKER_FILE_IDS = {"CAACAgUAAxkBAAMhaMRIECrBlF8NJmL1Qie4-FR3m1AAAoACAALZkE0HXDbU1x9tb6o2BA"}       # e.g. {"<your_gun_sticker_file_id>"}
+TARGET_STICKER_UNIQUE_IDS = {"AgADgAIAAtmQTQc"}    # e.g. {"<your_gun_sticker_unique_id>"}
 
 # Track the last typists per chat (for target selection)
 typist_history: Dict[int, List[Tuple[int, str]]] = {}
