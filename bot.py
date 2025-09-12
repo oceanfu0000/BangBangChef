@@ -2,8 +2,6 @@ import os
 import re
 import random
 import logging
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, List, Tuple, Optional
 
 from telegram import Update
@@ -43,10 +41,10 @@ COOK_RESPONSES = [
 
 # ---------- Helpers ----------
 def display_name(u) -> str:
-    if u.username:
+    if getattr(u, "username", None):
         return f"@{u.username}"
     name = (u.first_name or "").strip()
-    if u.last_name:
+    if getattr(u, "last_name", None):
         name = f"{name} {u.last_name}".strip()
     return name or "Someone"
 
@@ -124,37 +122,24 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Error: %s", context.error)
 
-# ---------- Tiny health HTTP server (so Render sees an open port) ----------
-def start_health_server(port: int):
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"ok")
-        def log_message(self, *args):  # silence default logs
-            return
-    srv = HTTPServer(("0.0.0.0", port), Handler)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    log.info("Health server listening on 0.0.0.0:%s", port)
-
-# ---------- Main ----------
+# ---------- Main (Render background worker) ----------
 def main():
+    # Read token from environment for security.
     token = os.getenv("BOT_TOKEN")
-    port = int(os.getenv("PORT", 10000))  # Render provides PORT
-
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var with your Telegram bot token.")
 
-    # Bind an HTTP port so Render is happy
-    # start_health_server(port)
-
     app = ApplicationBuilder().token(token).build()
+
+    # Handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Sticker.ALL & ~filters.StatusUpdate.ALL, text_handler))
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_error_handler(error_handler)
 
-    log.info("Bot started (polling). Health check at GET / on port %s", port)
-    app.run_polling()
+    # Run as a long-lived worker (no HTTP server/port binding needed).
+    # drop_pending_updates prevents a flood when the worker restarts.
+    log.info("Bot worker starting with polling…")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
