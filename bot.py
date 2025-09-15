@@ -4,9 +4,16 @@ import random
 import logging
 from typing import Dict, List, Tuple, Optional
 
+from telegram.constants import MessageEntityType
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
+
+SLUT_VARIANT = re.compile(r"\bslut\b", re.IGNORECASE)
+
+# chat_id -> { mention_key -> count }
+slut_counts: Dict[int, Dict[str, int]] = {}
+
 
 # ----- Logging -----
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -91,6 +98,17 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 1) Kitchen replies
         if COOK_VARIANTS.search(update.message.text):
             await update.effective_chat.send_message(random.choice(COOK_RESPONSES))
+    
+    # 1a) "@someone" + "slut" -> increment their 'classpart slut' and report total
+    if SLUT_VARIANT.search(update.message.text):
+        targets = mention_key_and_label_from_entities(update.message)
+        if targets:  # only count if someone was @mentioned
+            lines = []
+            for key, label in targets:
+                total = inc_slut_count(update.effective_chat.id, key, 1)
+                lines.append(f"+1 to classpart slut for {label} — total: {total}")
+            await update.effective_chat.send_message("\n".join(lines))
+
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat is None or update.effective_user is None:
@@ -129,6 +147,38 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Error: %s", context.error)
+
+def mention_key_and_label_from_entities(msg) -> List[Tuple[str, str]]:
+    """
+    Returns list of (key, label) for each mentioned user in the message.
+    key is stable across messages; label is for display.
+    - TEXT_MENTION: we key by user_id
+    - MENTION (@username): we key by lowercased username
+    """
+    out: List[Tuple[str, str]] = []
+    if not msg or not msg.entities:
+        return out
+
+    for ent in msg.entities:
+        if ent.type == MessageEntityType.TEXT_MENTION and getattr(ent, "user", None):
+            u = ent.user
+            key = f"u:{u.id}"
+            label = f"@{u.username}" if u.username else display_name(u)
+            out.append((key, label))
+        elif ent.type == MessageEntityType.MENTION:
+            # slice the raw text for @username
+            raw = msg.text[ent.offset: ent.offset + ent.length]
+            username = raw.lstrip("@")
+            key = f"n:{username.lower()}"
+            label = f"@{username}"
+            out.append((key, label))
+    return out
+
+def inc_slut_count(chat_id: int, key: str, inc: int = 1) -> int:
+    per_chat = slut_counts.setdefault(chat_id, {})
+    per_chat[key] = per_chat.get(key, 0) + inc
+    return per_chat[key]
+
 
 # ----- Webhook runner -----
 def main():
