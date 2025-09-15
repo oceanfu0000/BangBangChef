@@ -101,13 +101,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     # 1a) "@someone" + "slut" -> increment their 'classpart slut' and report total
     if SLUT_VARIANT.search(update.message.text):
-        targets = mention_key_and_label_from_entities(update.message)
-        if targets:  # only count if someone was @mentioned
-            lines = []
-            for key, label in targets:
-                total = inc_slut_count(update.effective_chat.id, key, 1)
-                lines.append(f"+1 to classpart slut for {label} — total: {total}")
-            await update.effective_chat.send_message("\n".join(lines))
+        text = update.message.text.lower()
+
+        # If message contains any of the excluded names
+        if any(x in text for x in ["naeco1107", "dahai", "ocean"]):
+            await update.effective_chat.send_message("👀 at @kayong79")
+        else:
+            targets = mention_key_and_label_from_entities(update.message)
+            if targets:  # only count if someone was @mentioned
+                lines = []
+                for key, label in targets:
+                    total = inc_slut_count(update.effective_chat.id, key, 1)
+                    lines.append(f"+1 to classpart slut for {label} — total: {total}")
+                await update.effective_chat.send_message("\n".join(lines))
 
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
