@@ -114,6 +114,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     total = inc_slut_count(update.effective_chat.id, key, 1)
                     lines.append(f"+1 to classpart slut for {label} — total: {total}")
                 await update.effective_chat.send_message("\n".join(lines))
+                
+    if update.message.via_bot and update.message.via_bot.username == "HowGayBot":
+        await update.effective_chat.send_message("no need to check you are gay")
+        return
 
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
